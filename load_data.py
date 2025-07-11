@@ -7,10 +7,20 @@ import tkinter as tk
 import matplotlib.pyplot as plt
 from tkinter import simpledialog, messagebox
 matplotlib.use('TkAgg')
+import argparse
+
+# colletct argomans from GUI or Command Line
+parser = argparse.ArgumentParser(description="Football xG Analysis Tool")
+parser.add_argument('--save_path', type=str, help='Path to save output files')
+parser.add_argument('--match_id', type=int, help='Match ID selected from GUI')
+args = parser.parse_args()
+
+external_save_path = args.save_path
+external_match_id = args.match_id
 
 
 # Find base directory of the project (where "data" folder is located)
-base_dir = os.path.dirname(os.path.abspath(__file__))  # Remove one dirname
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_dir = os.path.join(base_dir, 'data')
 
 # Build exact path to the JSON files
@@ -83,13 +93,18 @@ def get_match_id(matches_df):
     return root.match_id_input
 
 #
-match_id_input = get_match_id(matches_df)
+if external_match_id is not None:
+    match_id = int(external_match_id)
+else:
+    match_id_input = get_match_id(matches_df)
 
-if not match_id_input:
-    messagebox.showwarning("Cancelled", "No ID entered. Program terminated.")
-    exit()
+    if not match_id_input:
+        messagebox.showwarning("Cancelled", "No ID entered. Program terminated.")
+        exit()
 
-match_id = int(match_id_input)
+    match_id = int(match_id_input)
+
+
 filtered_events = events_df[events_df['match_id'] == match_id]
 
 # Filter only shot events
@@ -109,18 +124,21 @@ match_row = matches_df[matches_df['match_id'] == match_id].iloc[0]
 # Get team names and match date
 home_team = match_row['home_team.home_team_name'].replace(" ", "_")
 away_team = match_row['away_team.away_team_name'].replace(" ", "_")
-match_date = match_row['match_date']  # فرمت مثلاً 2021-10-15
+match_date = match_row['match_date']  # sample format 2021-10-15
 team_a = shots['team.name'].unique()[0]
 team_b = shots['team.name'].unique()[1]
 
 
 # Calculate match result and display goal scorers
 
-# Only goals
 goals = filtered_events[
     (filtered_events['type.name'] == 'Shot') &
     (filtered_events['shot.outcome.name'] == 'Goal')
-]
+].copy()
+
+# gaols time
+goals['goal_minute'] = goals['minute'] + goals['second'] / 60
+
 
 # Goals per team
 goals_by_team = goals['team.name'].value_counts()
@@ -140,29 +158,47 @@ for team in [team_a, team_b]:
     else:
         print(f"\n{team}No Goals")
 
+# data
+team_a_goals = goals[goals['team.name'] == team_a]
+team_b_goals = goals[goals['team.name'] == team_b]
+
+plt.figure(figsize=(12, 4))
+plt.title("⏱ Goal Timings by Team", fontsize=14)
+
+# chartings teams goals
+plt.scatter(team_a_goals['goal_minute'], [1]*len(team_a_goals), color='green', label=team_a, s=100)
+plt.scatter(team_b_goals['goal_minute'], [0]*len(team_b_goals), color='blue', label=team_b, s=100)
+
+# labels
+plt.yticks([0, 1], [team_b, team_a])
+plt.xlabel("Match Minute")
+plt.grid(True, axis='x', linestyle='--', alpha=0.5)
+plt.legend()
+plt.tight_layout()
+
 
 # Construct file name
 filename = f"{match_date}_{home_team}_vs_{away_team}.csv"
 
+if external_save_path:
+    save_dir = external_save_path
+else:
+    while True:
+        save_dir = simpledialog.askstring("Save Path", "Enter the folder path to save the file:")
 
-# Get save path from user with validation
-while True:
-    save_dir = simpledialog.askstring("Save Path", "Enter the folder path to save the file:")
+        if not save_dir:
+            messagebox.showwarning("Cancelled", "No path entered. Saving aborted.")
+            exit()
 
-    if not save_dir:
-        messagebox.showwarning("Cancelled", "No path entered. Saving aborted.")
-        exit()
+        save_dir = save_dir.strip('"').strip("'").strip()
 
-    # Erasing Quotes with Random Distance
-    save_dir = save_dir.strip('"').strip("'").strip()
+        try:
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            break
+        except Exception as e:
+            messagebox.showerror("Path Error", f"The entered path is invalid or cannot be created:\n{e}")
 
-    try:
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-
-        break
-    except Exception as e:
-        messagebox.showerror("Path Error", f"The entered path is invalid or cannot be created:\n{e}")
 
 # Construct final CSV file path
 file_path = os.path.join(save_dir, filename)
@@ -191,6 +227,45 @@ print(xg_by_team)
 xg_by_player = shots.groupby('player.name')['shot.statsbomb_xg'].sum().sort_values(ascending=False)
 print("\nTop xG Players:")
 print(xg_by_player.head(5))
+
+# calculating xG for each team
+team_xg = shots.groupby('team.name')['shot.statsbomb_xg'].sum()
+team_goals = goals['team.name'].value_counts()
+
+summary_df = pd.DataFrame({
+    'xG': team_xg,
+    'Goals': team_goals
+}).fillna(0)
+
+summary_df['xG Diff'] = summary_df['Goals'] - summary_df['xG']
+
+# charts in one subplot
+fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+fig.suptitle("📊 Team Performance Analysis: xG vs Goals", fontsize=14)
+
+# ===== First chart: xG and goal =====
+summary_df[['xG', 'Goals']].plot(kind='bar', ax=axs[0], rot=45)
+axs[0].set_title("xG vs Goals")
+axs[0].set_ylabel("Count")
+
+# add numerical value on top of charts
+for i, (team, row) in enumerate(summary_df.iterrows()):
+    axs[0].text(i - 0.2, row['xG'] + 0.1, f"{row['xG']:.2f}", ha='center', color='black', fontsize=9)
+    axs[0].text(i + 0.2, row['Goals'] + 0.1, f"{int(row['Goals'])}", ha='center', color='black', fontsize=9)
+
+# ===== second chart: Over/Under Performance =====
+colors = summary_df['xG Diff'].apply(lambda x: 'green' if x > 0 else 'red')
+summary_df['xG Diff'].plot(kind='bar', ax=axs[1], color=colors, rot=45)
+axs[1].axhline(0, linestyle='--', color='gray')
+axs[1].set_title("Over/Underperformance\n(Goals - xG)")
+axs[1].set_ylabel("Difference")
+
+# numbers on second chart
+for i, value in enumerate(summary_df['xG Diff']):
+    axs[1].text(x=i, y=value + (0.1 if value > 0 else -0.3), s=f"{value:+.2f}", ha='center', color='black')
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
 
 # Teams
 team_a = shots['team.name'].unique()[0]
@@ -302,13 +377,8 @@ fig_tables.text(0.5, 0.01, summary_text, ha='center', fontsize=10, wrap=True)
 
 plt.suptitle(f"xG Shot Map - {home_team} vs {away_team} ({match_date})", fontsize=14)
 plt.tight_layout()
-fig.text(0.5, 0.01, "🟢 = Goal     🔴 = Missed Shot", ha='center', fontsize=14, color='black')
-plt.show()
+fig.text(0.5, 0.01, "🟢Green = Goal     🔴Red = Missed Shot", ha='center', fontsize=14, color='black')
 
-
-
-# Footnote
-fig.text(0.5, 0.02, " 🟢 = Goal    🔴 = Missed Shot", fontsize=12, ha='center', color='black')
 
 # Save image
 image_path = os.path.join(os.path.expanduser('~'), 'Desktop', f"{match_date}_{home_team}_vs_{away_team}_xG_Map.png")
@@ -316,20 +386,10 @@ image_path = os.path.join(os.path.expanduser('~'), 'Desktop', f"{match_date}_{ho
 image_folder = os.path.dirname(image_path)
 if not os.path.exists(image_folder):
     os.makedirs(image_folder)
-# ذخیره تصویر
+
+# save result
 plt.savefig(image_path, dpi=300, bbox_inches='tight')
-plt.show()
 
 print(f" xG map image saved on Desktop: {image_path}")
+plt.show()
 
-
-
-# Export to CSV on my path when i whants to save them in mai window
-# events_csv_path = r""
-# matches_csv_path = r""
-#
-# events_df.to_csv(events_csv_path, index=False)
-# matches_df.to_csv(matches_csv_path, index=False)
-#
-# print(f"\n✅ Events CSV saved to: {events_csv_path}")
-# print(f"✅ Matches CSV saved to: {matches_csv_path}")

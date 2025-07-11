@@ -15,9 +15,30 @@ This initial version focuses on **xG (expected goals)** analysis from StatsBomb 
 
 ---
 
+## 🔍 What It Does
+
+The current version of **Football Analysis Visualizer** includes a GUI-based xG engine with enhanced insights:
+
+### 🎯 xG Analysis & Goal Insights:
+
+- ⚽ Total goals per team and per player
+- ⏱️ Minute-by-minute goal timeline (track match momentum)
+- 📍 Goal locations plotted on a pitch map
+- 📊 Real goals vs Expected Goals (xG) comparison — see who over/underperformed
+- 🖼️ Split half-pitch maps with visual indicators for shot outcome and player identity
+
+### 🖥️ Modern GUI Features:
+
+- 🔎 Match selector with competition filter and team/date search
+- 📂 Output folder selection
+- 🚀 One-click xG analysis execution using `subprocess`
+- ✅ Clean, beginner-friendly interface built with `Tkinter`
+
+
 ## 🔧 Requirements
 
 Install the required libraries:
 
 ```bash
 pip install -r requirements.txt
+
